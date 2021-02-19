@@ -1,0 +1,279 @@
+library(Matching)
+install.packages("rgenoud")
+library(rgenoud)
+
+##### QUESTION 1: 
+# load the data set: 
+foo <- read.csv(url("https://course-resources.minerva.kgi.edu/uploaded_files/mke/00089202-1711/daughters.csv"))
+
+### Question 1A: 
+## Run a regression before doing any matching: 
+reg1 = lm(nowtot ~ Dems + Repubs + Christian + age + srvlng + demvote + hasgirls, data = foo)
+summary(reg1) #treatment effect is the coefficient of hasgirls
+# Estimate 95% confidence interval 
+confint(reg1)
+# Check the balance of this unmatched data set
+foo_mb <- MatchBalance(foo$hasgirls~ foo$Dems + foo$Repubs + foo$Christian + foo$age + foo$srvlng + foo$demvote, nboots = 250)
+
+## Run Genetic Matching: 
+set.seed(2324)
+# Define X: 
+X <- cbind(foo$Dems, foo$Repubs, foo$Christian, foo$age, foo$srvlng, foo$demvote)
+# Run GenMatch to find covariate weights 
+genout <- GenMatch(Tr = foo$hasgirls, X = X, pop.size = 20, nboots = 250,
+                   estimand = "ATT", M = 1, unif.seed = 123, int.seed = 92485, wait.generations = 10)
+
+mout <- Match(Tr =foo$hasgirls, X = X,estimand="ATT", Weight.matrix =genout, M=1)
+
+MatchBalance(foo$hasgirls~ foo$Dems + foo$Repubs + foo$Christian + foo$age + foo$srvlng + foo$demvote, match.out = mout)
+
+## Including the outcome variable nowtot
+foo.rerun <- Match(Tr =foo$hasgirls, X = X, Y = foo$nowtot, estimand="ATT",
+                     Weight.matrix = genout, M=1)
+summary(foo.rerun)
+
+#printing the treatment effect, standard error and 95% confidence interval
+paste('The treatment effect is', foo.rerun$est)
+paste('The standard error is', foo.rerun$se)
+paste('The 95% confidence interval for the matched dataset is (', foo.rerun$est - 1.96*foo.rerun$se, ',', foo.rerun$est + 1.96*foo.rerun$se,')')
+
+
+### Question 1B: 
+# processing data so that treatment group only has units with at least 2 girls and no boys, 
+# and the control group only has units with at least 2 boys and no girls
+new_treat = which(foo$ngirls >= 2 & foo$nboys == 0)
+new_control = which(foo$nboys >= 2 & foo$ngirls == 0)
+# new data set:
+new_foo = rbind(foo[new_treat,],foo[new_control,])
+
+# running regression before any matching 
+reg2 = lm(nowtot ~ Dems + Repubs + Christian + age + srvlng + demvote + hasgirls, data = new_foo)
+summary(reg2) #treatment effect is the coefficient of hasgirls
+# Estimate 95% confidence interval 
+confint(reg2)
+# Check the balance of this unmatched data set
+new_foo_mb <- MatchBalance(new_foo$hasgirls~ new_foo$Dems + new_foo$Repubs + new_foo$Christian + new_foo$age + new_foo$srvlng + new_foo$demvote, nboots = 250)
+
+
+## Run Genetic Matching on the modified data set 
+set.seed(2324)
+# Define X1: 
+X1 <- cbind(new_foo$Dems, new_foo$Repubs, new_foo$Christian, new_foo$age, new_foo$srvlng, new_foo$demvote)
+# Run GenMatch to find covariate weights 
+genout1 <- GenMatch(Tr = new_foo$hasgirls, X = X1, pop.size = 20, nboots = 250,
+                   estimand = "ATT", M = 1, unif.seed = 123, int.seed = 92485, wait.generations = 10)
+
+mout1 <- Match(Tr = new_foo$hasgirls, X = X1,estimand="ATT", Weight.matrix = genout1, M=1)
+
+MatchBalance(new_foo$hasgirls~ new_foo$Dems + new_foo$Repubs + new_foo$Christian + new_foo$age + new_foo$srvlng + new_foo$demvote, match.out = mout1)
+
+## Including the outcome variable nowtot
+new_foo.rerun <- Match(Tr = new_foo$hasgirls, X = X1, Y = new_foo$nowtot, estimand="ATT",
+                   Weight.matrix = genout1, M=1)
+summary(new_foo.rerun)
+
+#printing the treatment effect, standard error and 95% confidence interval
+paste('The treatment effect is', new_foo.rerun$est)
+paste('The standard error is', new_foo.rerun$se)
+paste('The 95% confidence interval for the matched dataset is (',new_foo.rerun$est - 1.96*new_foo.rerun$se, ',', new_foo.rerun$est + 1.96*new_foo.rerun$se,')')
+
+#######################################################
+##### QUESTION 2:
+## Copy the code from the memo:
+rm(list=ls())
+# Import data:
+foo <- read.csv("https://tinyurl.com/y2qv82ks")
+
+install.packages("date")
+library(date)
+library(Matching)
+
+dim(foo)
+names(foo)
+
+# create dummies indicating where the blanks and NAs are.
+missing_bank_code <- rep(0, 76772)
+missing_bank_name <- rep(0, 76772)
+missing_date_of_birth <- rep(0, 76772)
+NA_postal_code <- rep(0, 76772)
+NA_capital <- rep(0, 76772)
+NA_credit_proposal <- rep(0, 76772)
+
+foo <- cbind(foo, missing_bank_code,
+             missing_bank_name,
+             missing_date_of_birth,
+             NA_postal_code,
+             NA_capital,
+             NA_credit_proposal)
+
+foo$missing_bank_code[which(foo$bank_code == "")] <- 1
+foo$missing_bank_name[which(foo$bank_name == "")] <- 1
+foo$missing_date_of_birth[which(foo$date_of_birth == "")] <- 1
+foo$NA_capital[which(is.na(foo$capital) == TRUE)] <- 1
+foo$NA_credit_proposal[which(is.na(foo$credit_proposal) == TRUE)] <- 1
+foo$NA_postal_code[which(is.na(foo$postal_code) == TRUE)] <- 1
+
+# change the dates to R-readable format
+foo$R_date_of_birth <- as.character(foo[,3])
+for(i in 1:length(foo[,3])) {foo$R_date_of_birth[i] <- as.date(foo$R_date_of_birth[i], order = 
+                                                                 "dmy")}
+foo$R_date_of_birth <- as.date(as.numeric(foo$R_date_of_birth))
+
+oldest <- which(foo$R_date_of_birth < as.date("1-Jan-1910"))
+youngest <- which(foo$R_date_of_birth > as.date("1 Jan 2001"))
+
+foo$oldest <- rep(0, length(foo[,3]))
+foo$youngest <- rep(0, length(foo[,3]))
+foo$outlier_ages <- rep(0, length(foo[,3]))
+foo$oldest[oldest] <- 1
+foo$youngest[youngest] <- 1
+foo$outlier_ages[c(oldest,youngest)] <- 1
+
+foo$R_date_of_birth[which(is.na(foo$R_date_of_birth) == TRUE)] <- -9999999
+
+# This obs with specific postal code makes no sense
+foo <- foo[-which(foo$postal_code == 9151), ]
+
+# To extract only the first digit of postal codes:
+foo$postal_code1 <- foo$postal_code%/% 10000
+foo$postal_code1[which(is.na(foo$postal_code1) == TRUE)] <- -9999999
+
+# credit_proposal feature engineering
+foo$credit_proposal[which(is.na(foo$credit_proposal) == TRUE)] <- 9999999
+
+foo$credit_proposal_0 <- foo$credit_proposal == 0 & (is.na(foo$credit_proposal) == FALSE)
+foo$credit_proposal_0to5 <- foo$credit_proposal > 0 & foo$credit_proposal < 5000000 & 
+  (is.na(foo$credit_proposal) == FALSE)
+foo$credit_proposal_5to10 <- foo$credit_proposal >= 5000000 & foo$credit_proposal < 10000000 & 
+  (is.na(foo$credit_proposal) == FALSE)
+foo$credit_proposal_10to20 <- foo$credit_proposal >= 10000000 & foo$credit_proposal < 20000000 & 
+  (is.na(foo$credit_proposal) == FALSE)
+foo$credit_proposal_20up <- foo$credit_proposal >= 20000000 & (is.na(foo$credit_proposal) == 
+                                                                 FALSE)
+
+foo$credit_proposal_transformed <-
+  1*foo$credit_proposal_0 +
+  2*foo$credit_proposal_0to5 +
+  3*foo$credit_proposal_5to10 +
+  4*foo$credit_proposal_10to20 +
+  5*foo$credit_proposal_20up +
+  6*foo$NA_credit_proposal
+
+# NA capital
+foo$capital[which(is.na(foo$capital) == TRUE)] <- 9999999
+
+# capital feature engineering
+foo$capital_0 <- foo$capital == 0 & (is.na(foo$capital) == FALSE)
+foo$capital_0to2 <- foo$capital > 0 & foo$capital < 200000 & (is.na(foo$capital) == FALSE)
+foo$capital_2to5 <- foo$capital >= 200000 & foo$capital < 500000 & (is.na(foo$capital) == FALSE)
+foo$capital_5to10 <- foo$capital >= 500000 & foo$capital < 1000000 & (is.na(foo$capital) == 
+                                                                        FALSE)
+foo$capital_10to20 <- foo$capital >= 1000000 & foo$capital < 2000000 & (is.na(foo$capital) == 
+                                                                          FALSE)
+foo$capital_20to50 <- foo$capital >= 2000000 & foo$capital < 5000000 & (is.na(foo$capital) == 
+                                                                          FALSE)
+foo$capital_50up <- foo$capital >= 5000000 & (is.na(foo$capital) == FALSE)
+foo$capital_transformed <-
+  1*foo$capital_0 +
+  2*foo$capital_0to2 +
+  3*foo$capital_2to5 +
+  4*foo$capital_5to10 +
+  5*foo$capital_10to20 +
+  6*foo$capital_20to50 +
+  7*foo$capital_50up +
+  8*foo$NA_capital
+
+# worker feature engineering
+# remove outlier in the control group (10 million workers)
+foo <- foo[-which(foo$worker == max(foo$worker)),]
+
+foo$worker_0 <- foo$worker == 0
+foo$worker_1 <- foo$worker == 1
+foo$worker_2 <- foo$worker == 2
+foo$worker_3 <- foo$worker == 3
+foo$worker_4 <- foo$worker == 4
+foo$worker_5to9 <- foo$worker >=5 & foo$worker < 10
+foo$worker_10to24 <- foo$worker >=10 & foo$worker < 25
+foo$worker_25to99 <- foo$worker >=25 & foo$worker < 100
+foo$worker_100up <- foo$worker >= 100
+
+foo$worker_transformed <-
+  1*foo$worker_0 +
+  2*foo$worker_1 +
+  3*foo$worker_2 +
+  4*foo$worker_3 +
+  5*foo$worker_4 +
+  6*foo$worker_5to9 +
+  7*foo$worker_10to24 +
+  8*foo$worker_25to99 +
+  9*foo$worker_100up
+
+
+# Treatment Indicator
+foo$treat <- foo$status == "Sudah"
+
+foo_badan <- foo[which(foo$gender == "BADAN USAHA"), ]
+foo_people <- foo[-which(foo$gender == "BADAN USAHA"), ]
+
+######## CODE MODIFICATION SHOULD BEGIN HERE...
+# Extract only the first 2 digits of district codes:
+foo$district_code1 <- foo$district_code%/% 100
+foo$district_code1 [which(is.na(foo$district_code1) == TRUE)] <- -9999999 #assigning -9999999 to any missing values in district_code
+
+# Run exact matching on the first 2 digits of district code by changing from foo$postal_code1 to foo$district_code1 and eliminating foo$NA_postal_code
+X = cbind(foo$R_date_of_birth, foo$gender, foo$marital_status,
+          foo$education, foo$occupation, foo$district_code1,
+          foo$worker, foo$capital, foo$credit_proposal,
+          foo$worker_transformed, foo$capital_transformed, foo$credit_proposal_transformed,
+          foo$missing_date_of_birth,
+          foo$NA_capital,
+          foo$NA_credit_proposal)
+
+# convert 365 to standard units and set the caliper
+cal = 365/sd(foo$R_date_of_birth)
+
+Tr <- foo$treat
+BalanceMat <- X
+
+# Genetic Matching: 
+genout <- GenMatch(Tr=Tr, X=X, BalanceMatrix=BalanceMat, estimand="ATT", M=1,
+                   pop.size=5, max.generations=2, wait.generations=1,
+                   exact = c(FALSE, TRUE, TRUE,
+                             TRUE, TRUE, TRUE,
+                             FALSE, FALSE, FALSE,
+                             TRUE, TRUE, TRUE,
+                             TRUE,
+                             TRUE,
+                             TRUE),
+                   caliper = c(cal, 1e16, 1e16, 
+                               1e16,1e16, 1e16, 
+                               1e16,1e16, 1e16, 
+                               1e16,1e16, 1e16, 
+                               1e16, 
+                               1e16, 
+                               1e16))
+
+mout <- Match(Tr=Tr, X=X, estimand="ATT", M=1,
+              exact = c(FALSE, TRUE, TRUE,
+                        TRUE, TRUE, TRUE,
+                        FALSE, FALSE, FALSE,
+                        TRUE, TRUE, TRUE,
+                        TRUE, TRUE, TRUE),
+              caliper = c(cal, 1e16, 1e16, 
+                          1e16, 1e16, 1e16, 
+                          1e16, 1e16, 1e16, 
+                          1e16, 1e16, 1e16, 
+                          1e16, 1e16, 1e16),
+              Weight.matrix = genout)
+
+summary(mout)
+
+mb <- MatchBalance(foo$treat ~ foo$R_date_of_birth + foo$gender + foo$marital_status +
+                     foo$education + foo$occupation + foo$district_code1 +
+                     foo$worker + foo$capital + foo$credit_proposal +
+                     foo$worker_transformed + foo$capital_transformed + 
+                     foo$credit_proposal_transformed +
+                     foo$missing_date_of_birth +
+                     foo$NA_capital +
+                     foo$NA_credit_proposal,
+                   match.out=mout, nboots=500)
